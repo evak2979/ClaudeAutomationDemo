@@ -43,3 +43,7 @@ orders.MapPost("/", async (Order order, AppDbContext db) =>
 });
 
 app.Run();
+
+// Exposed so the integration test project can drive the real app via
+// WebApplicationFactory<Program>.
+public partial class Program;
