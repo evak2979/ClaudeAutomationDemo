@@ -21,7 +21,8 @@ If `dotnet ef` isn't found: `dotnet tool install --global dotnet-ef`.
 ## What's here
 
 - `ClaudeAutomationDemo.Api/` — the Web API: `/orders` endpoints (GET all, GET by id,
-  POST with validation), EF Core `DbContext`, and the `Order` model
+  POST with validation), EF Core `DbContext`, the `Order` model, and `OrderValidator`
+  (quantity, and the 7-day cap on how far ahead `processDate` may be set)
 - `ClaudeAutomationDemo.Api.UnitTests/` — model and JSON-contract tests
 - `ClaudeAutomationDemo.Api.IntegrationTests/` — end-to-end `/orders` tests plus
   migration upgrade/rollback tests against a real SQLite database

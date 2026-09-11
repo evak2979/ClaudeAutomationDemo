@@ -15,8 +15,11 @@
   `WebApplicationFactory<Program>` against an in-memory SQLite DB built by the real migrations)
 
 ## Conventions
-- Validate in the endpoint, return `Results.Problem(...)` with a 400 for bad input — see the
-  `Quantity <= 0` check in the `POST /orders` endpoint as the pattern to follow
+- Validation rules live in `ClaudeAutomationDemo.Api/Validation/OrderValidator.cs` as a pure
+  function returning the first failure message (or null); the endpoint turns that into
+  `Results.Problem(...)` with a 400 — see `POST /orders` as the pattern to follow
+- Time-dependent rules take the current instant as a parameter and the endpoint passes
+  `TimeProvider.GetUtcNow()`, so they can be tested without waiting for the clock
 - Classes for EF-tracked entities, records for anything that's a pure DTO
 
 ## Status / next steps
@@ -26,3 +29,6 @@
   `dotnet ef migrations add` instead.
 - `Order.ProcessDate` is nullable on purpose: orders created before the field existed,
   and orders not processed yet, both read back as null. Keep it optional on input.
+- A submitted `ProcessDate` may be at most `OrderValidator.MaxProcessDateLeadDays` (7) days
+  ahead of now. Past dates are allowed, and the rule guards new input only — rows already
+  stored outside the window stay readable.

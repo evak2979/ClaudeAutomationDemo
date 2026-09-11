@@ -192,4 +192,122 @@ public class OrdersEndpointsTests : IClassFixture<OrdersApiFactory>
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
+
+    [Fact]
+    public async Task Post_WithProcessDateBeyondOneWeek_ReturnsProblem()
+    {
+        var response = await _client.PostAsJsonAsync("/orders", new
+        {
+            customerName = "Too Far Ahead",
+            quantity = 1,
+            unitPrice = 1.00m,
+            processDate = DateTimeOffset.UtcNow.AddDays(8)
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(
+            "ProcessDate must not be more than 7 days in the future.",
+            await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Post_WithProcessDateBeyondOneWeek_PersistsNothing()
+    {
+        var before = await CountOrders();
+
+        await _client.PostAsJsonAsync("/orders", new
+        {
+            customerName = "Rejected Order",
+            quantity = 1,
+            unitPrice = 1.00m,
+            processDate = DateTimeOffset.UtcNow.AddDays(45)
+        });
+
+        Assert.Equal(before, await CountOrders());
+    }
+
+    [Theory]
+    [InlineData(6)]
+    [InlineData(1)]
+    [InlineData(0)]
+    public async Task Post_WithProcessDateInsideTheWindow_IsAccepted(int daysAhead)
+    {
+        var processDate = DateTimeOffset.UtcNow.AddDays(daysAhead);
+
+        var response = await _client.PostAsJsonAsync("/orders", new
+        {
+            customerName = $"Within Window {daysAhead}",
+            quantity = 1,
+            unitPrice = 1.00m,
+            processDate
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var created = await response.Content.ReadFromJsonAsync<Order>();
+        Assert.Equal(processDate, created?.ProcessDate);
+    }
+
+    [Fact]
+    public async Task Post_WithProcessDateInThePast_IsStillAccepted()
+    {
+        // Backfilling when an order was actually processed must keep working —
+        // the rule caps the future only.
+        var processDate = DateTimeOffset.UtcNow.AddDays(-90);
+
+        var response = await _client.PostAsJsonAsync("/orders", new
+        {
+            customerName = "Processed Last Quarter",
+            quantity = 1,
+            unitPrice = 1.00m,
+            processDate
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(processDate, (await response.Content.ReadFromJsonAsync<Order>())?.ProcessDate);
+    }
+
+    [Fact]
+    public async Task Post_WithoutProcessDate_IsUnaffectedByTheWindow()
+    {
+        var response = await _client.PostAsJsonAsync("/orders", new
+        {
+            customerName = "No Process Date",
+            quantity = 1,
+            unitPrice = 1.00m
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Null((await response.Content.ReadFromJsonAsync<Order>())?.ProcessDate);
+    }
+
+    [Fact]
+    public async Task StoredOrder_BeyondTheWindow_IsStillReadable()
+    {
+        // A row written before the rule existed. Validation guards new input only;
+        // it must not make existing data unreadable.
+        const int legacyId = 9002;
+        var farFuture = DateTimeOffset.UtcNow.AddYears(2);
+
+        await _factory.WithDbContext(async db =>
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                INSERT INTO Orders (Id, CustomerName, Quantity, UnitPrice, CreatedAt, ProcessDate)
+                VALUES ({0}, {1}, {2}, {3}, {4}, {5})
+                """,
+                legacyId, "Grandfathered Customer", 2, 30.00m, DateTimeOffset.UtcNow, farFuture));
+
+        var response = await _client.GetAsync($"/orders/{legacyId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var fetched = await response.Content.ReadFromJsonAsync<Order>();
+        Assert.Equal(farFuture, fetched?.ProcessDate);
+    }
+
+    private async Task<int> CountOrders()
+    {
+        var count = 0;
+        await _factory.WithDbContext(async db => count = await db.Orders.CountAsync());
+        return count;
+    }
 }
