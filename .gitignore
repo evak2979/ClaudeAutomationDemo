@@ -7,3 +7,6 @@ obj/
 .idea/
 *.user
 *.DotSettings.user
+
+# Claude Code personal overrides (not team-wide)
+.claude/settings.local.json
